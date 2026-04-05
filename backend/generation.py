@@ -1,5 +1,5 @@
 from typing import List, Dict, AsyncGenerator, Union
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, SystemMessage
 
 SYSTEM_PROMPT = """You are a precise document analysis assistant.
@@ -12,21 +12,20 @@ def build_context(chunks):
         parts.append(f"[Chunk {i} | Source: {chunk.get('source','unknown')}]\n{chunk.get('content','')}")
     return "\n\n---\n\n".join(parts)
 
-async def stream_answer(query: str, chunks: List[Dict], stream: bool = True):
+async def stream_answer(query: str, chunks: List[Dict], stream: bool = True) -> Union[AsyncGenerator, str]:
     context = build_context(chunks)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=f"Context:\n\n{context}\n\n---\n\nQuestion: {query}\n\nAnswer:")
     ]
     if stream:
-        return _stream_tokens(messages)
+        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001", temperature=0, streaming=True)
+        async def token_generator():
+            async for chunk in llm.astream(messages):
+                if chunk.content:
+                    yield chunk.content
+        return token_generator()
     else:
-        llm = ChatOpenAI(model="gpt-4o", temperature=0)
+        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001", temperature=0)
         response = await llm.ainvoke(messages)
         return response.content
-
-async def _stream_tokens(messages):
-    llm = ChatOpenAI(model="gpt-4o", temperature=0, streaming=True)
-    async for chunk in llm.astream(messages):
-        if chunk.content:
-            yield chunk.content

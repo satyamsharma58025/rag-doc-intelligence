@@ -5,6 +5,9 @@ import uuid
 import asyncio
 from typing import Optional
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from ingestion import ingest_pdf, ingest_url
 from retrieval import hybrid_retrieve
@@ -37,11 +40,15 @@ async def create_session():
 async def ingest_pdf_endpoint(file: UploadFile = File(...), session_id: str = None):
     if not session_id:
         session_id = str(uuid.uuid4())
+    if not sessions.exists(session_id):
         sessions.create(session_id)
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
     content = await file.read()
-    result = await ingest_pdf(content, session_id, file.filename)
+    try:
+        result = await ingest_pdf(content, session_id, file.filename)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     return {"session_id": session_id, "filename": file.filename, "chunks_indexed": result["chunks"], "status": "success"}
 
 @app.post("/ingest/url")
@@ -49,7 +56,10 @@ async def ingest_url_endpoint(request: URLRequest):
     session_id = request.session_id or str(uuid.uuid4())
     if not sessions.exists(session_id):
         sessions.create(session_id)
-    result = await ingest_url(request.url, session_id)
+    try:
+        result = await ingest_url(request.url, session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     return {"session_id": session_id, "url": request.url, "chunks_indexed": result["chunks"], "status": "success"}
 
 @app.get("/session/{session_id}/docs")

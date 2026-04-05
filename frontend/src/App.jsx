@@ -1,8 +1,32 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import "./App.css";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const WS  = API.replace("http", "ws");
+const API = import.meta.env.VITE_API_URL || "/api";
+const WS = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace(/^http/, "ws")
+  : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+
+const handleResponse = async (res) => {
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  let data;
+  if (contentType.includes("application/json")) {
+    data = await res.json();
+  } else {
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(text || `${res.status} ${res.statusText}`);
+    }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  if (!res.ok) {
+    throw new Error(data?.detail || data?.error || data || `${res.status} ${res.statusText}`);
+  }
+  return data;
+};
 
 export default function App() {
   const [sessionId, setSessionId] = useState(null);
@@ -27,10 +51,12 @@ export default function App() {
     form.append("file", file);
     try {
       const res  = await fetch(`${API}/ingest/pdf?session_id=${sessionId}`, { method: "POST", body: form });
-      const data = await res.json();
+      const data = await handleResponse(res);
       setDocs(d => [...d, { name: file.name, chunks: data.chunks_indexed, type: "pdf" }]);
       setStatus(`✓ ${file.name} — ${data.chunks_indexed} chunks indexed`);
-    } catch { setStatus("Upload failed."); }
+    } catch (error) {
+      setStatus(`Upload failed: ${error.message}`);
+    }
     finally { setUploading(false); }
   };
 
@@ -38,10 +64,12 @@ export default function App() {
     setUploading(true); setStatus(`Fetching ${url}…`);
     try {
       const res  = await fetch(`${API}/ingest/url`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, session_id: sessionId }) });
-      const data = await res.json();
+      const data = await handleResponse(res);
       setDocs(d => [...d, { name: url, chunks: data.chunks_indexed, type: "url" }]);
       setStatus(`✓ URL indexed — ${data.chunks_indexed} chunks`);
-    } catch { setStatus("URL ingestion failed."); }
+    } catch (error) {
+      setStatus(`URL ingestion failed: ${error.message}`);
+    }
     finally { setUploading(false); }
   };
 
